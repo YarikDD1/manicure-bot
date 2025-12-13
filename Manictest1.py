@@ -45,11 +45,17 @@ PROJECT_FOLDER = "Manictest1"
 DB_FILE = os.path.join(PROJECT_FOLDER, "Manictest1.db")
 UPLOAD_PATH = os.path.join(PROJECT_FOLDER, "uploads")
 
-API_TOKEN = os.getenv("8533781697:AAG4D_1Wk7ripyb7e6jvuRRCjHmd9IpxR_c")
-_admin_raw = os.getenv("580493054", "")
+from aiogram import Bot
+
+
+API_TOKEN = "8533781697:AAG4D_1Wk7ripyb7e6jvuRRCjHmd9IpxR_c"
+
+bot = Bot(token=API_TOKEN)
+print("BOT STARTED WITH HARDCODE TOKEN")
+
 ADMIN_IDS = [int(x) for x in _admin_raw.split(",") if x.strip().isdigit()]
 MASTER_IDS = ["580493054"]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
-
+ADMIN_IDS = =["580493054"]
 TG_GROUP_URL = "https://t.me/testworkmanic"  # <-- ссылка на группу с работами/отзывами
 
 WEB_HOST = "127.0.0.1"
