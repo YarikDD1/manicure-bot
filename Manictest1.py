@@ -45,11 +45,12 @@ PROJECT_FOLDER = "Manictest1"
 DB_FILE = os.path.join(PROJECT_FOLDER, "Manictest1.db")
 UPLOAD_PATH = os.path.join(PROJECT_FOLDER, "uploads")
 
-API_TOKEN = os.getenv("API_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))
-MASTER_IDS = ["NASTER_IDS"]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
+API_TOKEN = os.getenv("8533781697:AAG4D_1Wk7ripyb7e6jvuRRCjHmd9IpxR_c")
+_admin_raw = os.getenv("580493054", "")
+ADMIN_IDS = [int(x) for x in _admin_raw.split(",") if x.strip().isdigit()]
+MASTER_IDS = ["580493054"]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
 
-TG_GROUP_URL = "https://t.me/your_nail_group"  # <-- ссылка на группу с работами/отзывами
+TG_GROUP_URL = "https://t.me/testworkmanic"  # <-- ссылка на группу с работами/отзывами
 
 WEB_HOST = "127.0.0.1"
 WEB_PORT = 8000
