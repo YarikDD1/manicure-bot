@@ -55,7 +55,7 @@ print("BOT STARTED WITH HARDCODE TOKEN")
 
 ADMIN_IDS = [int(x) for x in _admin_raw.split(",") if x.strip().isdigit()]
 MASTER_IDS = ["580493054"]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
-ADMIN_IDS = ["580493054"]
+ADMIN_IDS = [580493054]
 TG_GROUP_URL = "https://t.me/testworkmanic"  # <-- ссылка на группу с работами/отзывами
 
 WEB_HOST = "127.0.0.1"
