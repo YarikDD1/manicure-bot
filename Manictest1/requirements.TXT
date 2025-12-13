@@ -1,0 +1,6 @@
+aiogram
+sqlmodel
+aiosqlite
+fastapi
+uvicorn
+aiohttp
