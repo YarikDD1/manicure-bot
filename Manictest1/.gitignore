@@ -1,19 +1,5 @@
-# Python
+.env
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.venv/
-
-# PyCharm
-.idea/
-
-# Database
-*.db
-*.db.bak.*
-
-# Uploads
-Manictest1/uploads/
-
-# OS
-.DS_Store
+Manictest1.db

@@ -1,22 +1,8 @@
-"""
-Telegram Nail Salon Bot
-
-ИЗМЕНЕНИЯ:
-❌ Удалено портфолио (Photo, PhotoStates, handlers)
-✅ Добавлен раздел «О салоне» (SalonInfo)
-"""
-
+import os
 import asyncio
 import logging
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from aiogram import Bot
-
-import shutil
 import sqlite3
+import shutil
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple
 
@@ -44,20 +30,32 @@ from fastapi import FastAPI
 PROJECT_FOLDER = "Manictest1"
 DB_FILE = os.path.join(PROJECT_FOLDER, "Manictest1.db")
 
-import os
-from aiogram import Bot
-
+# 🔐 TOKEN из Railway / окружения
 API_TOKEN = os.getenv("BOT_TOKEN")
 if not API_TOKEN:
     raise RuntimeError("BOT_TOKEN not set")
 
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+# 👑 Админы из Railway Variables
+ADMIN_IDS = [
+    int(x) for x in os.getenv("ADMIN_IDS", "580493054").split(",")
+    if x.strip().isdigit()
+]
 
-bot = Bot(token=API_TOKEN)
-
-ADMIN_IDS = [580493054]
+# 👩‍🔧 Мастера (можно позже тоже вынести в env)
 MASTER_IDS = [580493054]
+
 TG_GROUP_URL = "https://t.me/testworkmanic"
+
+# ================= BOT INIT =================
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+router = Router()
+dp.include_router(router)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 PAST_STATUS = "past"
 
