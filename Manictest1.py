@@ -50,7 +50,6 @@ from aiogram import Bot
 
 API_TOKEN = "8533781697:AAG4D_1Wk7ripyb7e6jvuRRCjHmd9IpxR_c"
 bot = Bot(token=API_TOKEN)
-print("BOT STARTED WITH HARDCODE TOKEN")
 
 ADMIN_IDS = [580493054]
 MASTER_IDS = [580493054]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
@@ -666,7 +665,7 @@ async def photo_skip(message: Message, state: FSMContext):
         await state.clear()
 
 
-@router.message(F.text == "📂 Просмотреть портфолио")
+@router.message(F.text.contains("Просмотреть портфолио"))
 async def view_portfolio(message: Message):
     async with AsyncSession(engine) as session:
         result = await session.exec(
@@ -682,17 +681,14 @@ async def view_portfolio(message: Message):
 
     for p in photos:
         try:
-            file = InputFile(p.file_path)
-            caption = p.caption or "Работа из портфолио 💅"
             await bot.send_photo(
                 message.chat.id,
-                file,
-                caption=caption
+                InputFile(p.file_path),
+                caption=p.caption or "Работа из портфолио 💅"
             )
-        except FileNotFoundError:
-            logger.warning("Файл не найден: %s", p.file_path)
         except Exception as e:
             logger.exception("Ошибка отправки фото: %s", e)
+
 
 
 
