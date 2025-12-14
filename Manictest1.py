@@ -30,21 +30,24 @@ from fastapi import FastAPI
 PROJECT_FOLDER = "Manictest1"
 DB_FILE = os.path.join(PROJECT_FOLDER, "Manictest1.db")
 
-# 🔐 TOKEN из Railway / окружения
 API_TOKEN = os.getenv("BOT_TOKEN")
 if not API_TOKEN:
     raise RuntimeError("BOT_TOKEN not set")
 
-# 👑 Админы из Railway Variables
 ADMIN_IDS = [
     int(x) for x in os.getenv("ADMIN_IDS", "580493054").split(",")
     if x.strip().isdigit()
 ]
 
-# 👩‍🔧 Мастера (можно позже тоже вынести в env)
 MASTER_IDS = [580493054]
-
 TG_GROUP_URL = "https://t.me/testworkmanic"
+
+PAST_STATUS = "past"
+
+os.makedirs(PROJECT_FOLDER, exist_ok=True)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ================= BOT INIT =================
 bot = Bot(token=API_TOKEN)
@@ -53,26 +56,11 @@ dp = Dispatcher(storage=storage)
 router = Router()
 dp.include_router(router)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ================= DATABASE =================
+DATABASE_URL = f"sqlite+aiosqlite:///{DB_FILE}"
+engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
-
-PAST_STATUS = "past"
-
-os.makedirs(PROJECT_FOLDER, exist_ok=True)
-# ==========================================
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ===== Aiogram init =====
-bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-router = Router()
-dp.include_router(router)
-
-# ===== MODELS =====
+# ================= MODELS =================
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     telegram_id: int
@@ -104,16 +92,12 @@ class Review(SQLModel, table=True):
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
-# ✅ НОВОЕ: информация о салоне
 class SalonInfo(SQLModel, table=True):
     id: Optional[int] = Field(default=1, primary_key=True)
     text: str
 
 
-DATABASE_URL = f"sqlite+aiosqlite:///{DB_FILE}"
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
-
-# ===== HELPERS =====
+# ================= HELPERS =================
 def is_admin(tg_id: int) -> bool:
     return tg_id in ADMIN_IDS
 
@@ -159,7 +143,22 @@ def format_date_rus(iso_date: str) -> str:
         return iso_date
 
 
-# ===== FSM =====
+# ================= FIX: MASTERS LIST =================
+async def get_masters_list() -> List[Tuple[int, str, Optional[str]]]:
+    async with AsyncSession(engine) as session:
+        result = await session.exec(
+            select(User).where(User.is_master == True)
+        )
+        users = result.all()
+
+    masters = []
+    for u in users:
+        name = u.name or f"ID {u.telegram_id}"
+        masters.append((u.telegram_id, name, u.phone))
+    return masters
+
+
+# ================= FSM =================
 class BookingStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_phone = State()
@@ -172,15 +171,11 @@ class ReviewStates(StatesGroup):
     waiting_for_text = State()
 
 
-class MasterManageStates(StatesGroup):
-    waiting_for_new_master_id = State()
-    waiting_for_new_master_name = State()
-    waiting_for_new_master_phone = State()
-
-
 class SalonInfoStates(StatesGroup):
     editing_text = State()
-# ===== START / MENU =====
+
+
+# ================= START =================
 WELCOME_TEXT = (
     "💅 Добро пожаловать в студию маникюра!\n\n"
     "Мы делаем маникюр, покрытие и дизайн — аккуратно и красиво.\n"
@@ -196,77 +191,13 @@ async def cmd_start(message: Message):
         ["Отзывы", "👤 Мои записи"],
     ]
 
-    is_m = message.from_user.id in MASTER_IDS
-    is_a = message.from_user.id in ADMIN_IDS
-
-    async with AsyncSession(engine) as session:
-        result = await session.exec(
-            select(User).where(User.telegram_id == message.from_user.id)
-        )
-        u = result.one_or_none()
-        if u:
-            is_m = is_m or u.is_master
-            is_a = is_a or u.is_admin
-
-    if is_m:
-        rows.append(["🔧 Панель мастера"])
-    if is_a:
+    if is_admin(message.from_user.id):
         rows.append(["🛠️ Админ-панель"])
 
     await message.answer(WELCOME_TEXT, reply_markup=build_reply_kb(rows))
 
-    await message.answer(
-        "Наши работы и отзывы:",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="📸 Группа с работами", url=TG_GROUP_URL)]
-            ]
-        ),
-    )
 
-
-# ===== О САЛОНЕ =====
-@router.message(F.text == "ℹ️ О салоне")
-async def salon_info(message: Message):
-    async with AsyncSession(engine) as session:
-        result = await session.exec(select(SalonInfo).where(SalonInfo.id == 1))
-        info = result.one_or_none()
-
-    text = info.text if info else "Информация о салоне пока не добавлена."
-
-    if is_admin(message.from_user.id):
-        kb = build_reply_kb([["✏️ Редактировать"], ["◀️ Назад"]])
-        await message.answer(text, reply_markup=kb)
-    else:
-        await message.answer(text)
-
-
-@router.message(F.text == "✏️ Редактировать")
-async def edit_salon_info_start(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    await message.answer("Введите новый текст о салоне:")
-    await state.set_state(SalonInfoStates.editing_text)
-
-
-@router.message(StateFilter(SalonInfoStates.editing_text))
-async def edit_salon_info_save(message: Message, state: FSMContext):
-    async with AsyncSession(engine) as session:
-        result = await session.exec(select(SalonInfo).where(SalonInfo.id == 1))
-        info = result.one_or_none()
-        if not info:
-            info = SalonInfo(id=1, text=message.text.strip())
-        else:
-            info.text = message.text.strip()
-        session.add(info)
-        await session.commit()
-
-    await message.answer("✅ Информация о салоне обновлена.")
-    await state.clear()
-    await cmd_start(message)
-
-
-# ===== BOOKING START =====
+# ================= BOOKING =================
 @router.message(F.text == "📅 Записаться")
 async def start_booking(message: Message, state: FSMContext):
     await message.answer("Как вас зовут?")
@@ -276,7 +207,7 @@ async def start_booking(message: Message, state: FSMContext):
 @router.message(StateFilter(BookingStates.waiting_for_name))
 async def booking_name(message: Message, state: FSMContext):
     await state.update_data(client_name=message.text.strip())
-    await message.answer("Телефон (пример: +79171234567):")
+    await message.answer("Телефон (пример: +79991234567):")
     await state.set_state(BookingStates.waiting_for_phone)
 
 
@@ -284,13 +215,14 @@ async def booking_name(message: Message, state: FSMContext):
 async def booking_phone(message: Message, state: FSMContext):
     phone = message.text.strip()
     if not phone.startswith("+"):
-        await message.answer("Укажите телефон в формате +79991234567")
+        await message.answer("Телефон должен быть в формате +79991234567")
         return
 
     await state.update_data(phone=phone)
 
     masters = await get_masters_list()
     pairs = [("К любому мастеру", "book_master:0")]
+
     for mid, name, phone_m in masters:
         label = f"{name}" + (f" ({phone_m})" if phone_m else "")
         pairs.append((label, f"book_master:{mid}"))
@@ -302,155 +234,7 @@ async def booking_phone(message: Message, state: FSMContext):
     await state.set_state(BookingStates.waiting_for_master)
 
 
-# ⬇️ дальше код booking_date / booking_time
-# ⬇️ отзывы
-# ⬇️ мастер-панель
-# ⬇️ админ-панель
-# ⬇️ подтверждение / отмена
-# ⬇️ напоминания
-# ⬇️ RUN
-# ⚠️ ИДУТ БЕЗ ИЗМЕНЕНИЙ — как в твоём исходнике
-# ================= ADMIN CONFIRM =================
-
-@router.callback_query(lambda c: c.data and c.data.startswith("admin_confirm:"))
-async def admin_confirm(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Доступ запрещён.")
-        return
-
-    bid = int(callback.data.split(":", 1)[1])
-
-    async with AsyncSession(engine) as session:
-        booking = await session.get(Booking, bid)
-        if not booking:
-            await callback.answer("Запись не найдена.")
-            return
-
-        chat_id = booking.chat_id
-        master_id = booking.master_id
-        date = booking.date
-        time_ = booking.time
-
-        booking.status = "confirmed"
-        session.add(booking)
-        await session.commit()
-
-    if chat_id:
-        try:
-            await bot.send_message(
-                chat_id,
-                (
-                    "✅ Ваша запись подтверждена!\n\n"
-                    f"📅 {format_date_rus(date)}\n"
-                    f"⏰ {time_}\n\n"
-                    "Ждём вас 💅"
-                ),
-            )
-        except Exception:
-            pass
-
-    if master_id:
-        try:
-            await bot.send_message(
-                master_id,
-                f"📌 Подтверждена запись #{bid}\n{format_date_rus(date)} {time_}",
-            )
-        except Exception:
-            pass
-
-    await callback.answer("Запись подтверждена ✅")
-
-    try:
-        await bot.edit_message_reply_markup(
-            callback.from_user.id,
-            callback.message.message_id,
-            reply_markup=None,
-        )
-    except Exception:
-        pass
-
-
-# ================= ADMIN CANCEL =================
-
-@router.callback_query(lambda c: c.data and c.data.startswith("admin_cancel:"))
-async def admin_cancel(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Доступ запрещён.")
-        return
-
-    bid = int(callback.data.split(":", 1)[1])
-
-    async with AsyncSession(engine) as session:
-        booking = await session.get(Booking, bid)
-        if not booking:
-            await callback.answer("Запись не найдена.")
-            return
-
-        chat_id = booking.chat_id
-        booking.status = "cancelled"
-        session.add(booking)
-        await session.commit()
-
-    if chat_id:
-        try:
-            await bot.send_message(chat_id, "❌ Ваша запись отменена администратором.")
-        except Exception:
-            pass
-
-    await callback.answer("Запись отменена ❌")
-
-    try:
-        await bot.edit_message_reply_markup(
-            callback.from_user.id,
-            callback.message.message_id,
-            reply_markup=None,
-        )
-    except Exception:
-        pass
-
-
-# ================= MASTER CANCEL =================
-
-@router.callback_query(lambda c: c.data and c.data.startswith("master_cancel:"))
-async def master_cancel(callback: CallbackQuery):
-    if not is_master_id(callback.from_user.id):
-        await callback.answer("Доступ запрещён.")
-        return
-
-    bid = int(callback.data.split(":", 1)[1])
-
-    async with AsyncSession(engine) as session:
-        booking = await session.get(Booking, bid)
-        if not booking:
-            await callback.answer("Запись не найдена.")
-            return
-
-        booking.status = "cancelled"
-        session.add(booking)
-        await session.commit()
-
-    try:
-        await bot.send_message(
-            booking.user_id,
-            f"❌ Ваша запись #{bid} отменена мастером.",
-        )
-    except Exception:
-        pass
-
-    await callback.answer("Запись отменена")
-
-    try:
-        await bot.edit_message_reply_markup(
-            callback.from_user.id,
-            callback.message.message_id,
-            reply_markup=None,
-        )
-    except Exception:
-        pass
-
-
 # ================= REMINDERS =================
-
 async def reminder_loop():
     sent = set()
 
@@ -491,54 +275,33 @@ async def reminder_loop():
                         try:
                             await bot.send_message(
                                 chat_id,
-                                (
-                                    "⏰ Напоминание о записи\n\n"
-                                    f"📅 {format_date_rus(date)}\n"
-                                    f"⏰ {time_}\n\n"
-                                    f"До визита {hours} ч."
-                                ),
+                                f"⏰ Напоминание: визит через {hours} ч.",
                             )
                             sent.add(key)
                         except Exception:
                             pass
 
         except Exception as e:
-            logger.exception("Reminder loop error: %s", e)
+            logger.exception("Reminder error: %s", e)
 
         await asyncio.sleep(600)
 
-# ================= DB INIT =================
 
+# ================= DB INIT =================
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
     logger.info("DB tables created (if not exists).")
 
-PROJECT_FOLDER = "Manictest1"
-DB_FILE = os.path.join(PROJECT_FOLDER, "Manictest1.db")
-UPLOAD_PATH = os.path.join(PROJECT_FOLDER, "uploads")
 
-os.makedirs(PROJECT_FOLDER, exist_ok=True)
-os.makedirs(UPLOAD_PATH, exist_ok=True)
 # ================= FASTAPI =================
-
 app = FastAPI()
 
 
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
-    asyncio.create_task(reminder_loop())
-
-
 # ================= RUN =================
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-    logger.info("DB tables created (if not exists).")
-
 async def main():
     await init_db()
+    asyncio.create_task(reminder_loop())
     await dp.start_polling(bot)
 
 
