@@ -235,24 +235,25 @@ async def is_time_slot_free(date_iso: str, time_slot: str, master_id: Optional[i
 
 async def get_masters_list() -> List[Tuple[int, str, Optional[str]]]:
     """
-    Return list of tuples (telegram_id, display_name, phone)
-    Sources:
-      - MASTER_IDS global list
-      - Users table where is_master=True
-    Dedupe by telegram_id.
+    Возвращает список мастеров:
+    (telegram_id, отображаемое имя, телефон)
     """
+
     masters = {}
-    # from MASTER_IDS (without details)
-    for mid in MASTER_IDS:
-        masters[mid] = {"name": f"Мастер {mid}", "phone": None}
-    # from DB
+
     async with AsyncSession(engine) as session:
-        result = await session.exec(select(User).where(User.is_master == True))
-        rows = result.all()
-        for u in rows:
-            masters[u.telegram_id] = {"name": u.name or f"@{u.telegram_id}", "phone": u.phone}
-    # format list
-    return [(mid, masters[mid]["name"], masters[mid]["phone"]) for mid in masters.keys()]
+        result = await session.exec(
+            select(User).where(User.is_master == True)
+        )
+        users = result.all()
+
+        for u in users:
+            name = u.name or f"@{u.telegram_id}"
+            phone = u.phone
+            masters[u.telegram_id] = (u.telegram_id, name, phone)
+
+    return list(masters.values())
+
 
 
 async def mark_past_bookings():
