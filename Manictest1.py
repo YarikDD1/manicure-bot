@@ -669,22 +669,31 @@ async def photo_skip(message: Message, state: FSMContext):
 @router.message(F.text == "📂 Просмотреть портфолио")
 async def view_portfolio(message: Message):
     async with AsyncSession(engine) as session:
-        result = await session.exec(select(Photo).where(Photo.user_id == message.from_user.id).order_by(Photo.id.desc()))
-        rows = result.all()
-    if not rows:
-        await message.answer("Портфолио пустое.")
+        result = await session.exec(
+            select(Photo)
+            .order_by(Photo.uploaded_at.desc())
+            .limit(20)
+        )
+        photos = result.all()
+
+    if not photos:
+        await message.answer("Портфолио пока пустое.")
         return
-    for r in rows[:20]:
+
+    for p in photos:
         try:
-            # Use InputFile to satisfy aiogram/pydantic expectations
-            file_obj = InputFile(r.file_path)
-            await bot.send_photo(message.from_user.id, file_obj, caption=f"{r.caption}\n(загружено: {r.uploaded_at})")
+            file = InputFile(p.file_path)
+            caption = p.caption or "Работа из портфолио 💅"
+            await bot.send_photo(
+                message.chat.id,
+                file,
+                caption=caption
+            )
         except FileNotFoundError:
-            logger.exception("Portfolio: file not found %s", r.file_path)
-            await message.answer(f"Файл не найден: {os.path.basename(r.file_path)}")
+            logger.warning("Файл не найден: %s", p.file_path)
         except Exception as e:
-            logger.exception("send photo failed for %s: %s", r.file_path, e)
-            continue
+            logger.exception("Ошибка отправки фото: %s", e)
+
 
 
 # Reviews
