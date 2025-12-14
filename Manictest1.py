@@ -53,7 +53,7 @@ bot = Bot(token=API_TOKEN)
 print("BOT STARTED WITH HARDCODE TOKEN")
 
 ADMIN_IDS = [580493054]
-MASTER_IDS = ["580493054"]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
+MASTER_IDS = [580493054]  # <-- начальный список мастеров (можно добавлять/удалять в админ-панели)
 TG_GROUP_URL = "https://t.me/testworkmanic"  # <-- ссылка на группу с работами/отзывами
 
 WEB_HOST = "127.0.0.1"
@@ -977,12 +977,12 @@ async def admin_confirm(callback: CallbackQuery):
     async with AsyncSession(engine) as session:
         result = await session.exec(select(Booking).where(Booking.id == bid))
         booking = result.one_or_none()
+
         if not booking:
             await callback.answer("Запись не найдена.")
             return
 
-        # ✅ СОХРАНЯЕМ ВСЁ ЗАРАНЕЕ
-        user_id = booking.user_id
+        # 🔒 сохраняем данные ДО закрытия сессии
         chat_id = booking.chat_id
         master_id = booking.master_id
         date = booking.date
@@ -992,7 +992,7 @@ async def admin_confirm(callback: CallbackQuery):
         session.add(booking)
         await session.commit()
 
-    # 🔔 клиент
+    # ✅ сообщение клиенту
     if chat_id:
         try:
             await bot.send_message(
@@ -1004,16 +1004,16 @@ async def admin_confirm(callback: CallbackQuery):
                     "Ждём вас 💅"
                 )
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Не удалось отправить сообщение клиенту: %s", e)
 
-    # 👩‍🔧 мастер
+    # 👩‍🔧 сообщение мастеру
     if master_id:
         try:
             await bot.send_message(
                 master_id,
                 (
-                    "📌 Запись подтверждена администратором\n\n"
+                    "📌 Запись подтверждена\n\n"
                     f"📅 {format_date_rus(date)}\n"
                     f"⏰ {time_}\n"
                     f"🆔 Запись #{bid}"
@@ -1022,7 +1022,50 @@ async def admin_confirm(callback: CallbackQuery):
         except Exception:
             pass
 
-    await callback.answer("Запись подтверждена.")
+    await callback.answer("Запись подтверждена ✅")
+
+    # убрать кнопки
+    try:
+        await bot.edit_message_reply_markup(
+            callback.from_user.id,
+            callback.message.message_id,
+            reply_markup=None
+        )
+    except Exception:
+        pass
+
+
+
+# ================= ADMIN CANCEL =================
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin_cancel:"))
+async def admin_cancel(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён.")
+        return
+
+    bid = int(callback.data.split(":", 1)[1])
+
+    async with AsyncSession(engine) as session:
+        result = await session.exec(select(Booking).where(Booking.id == bid))
+        booking = result.one_or_none()
+
+        if not booking:
+            await callback.answer("Запись не найдена.")
+            return
+
+        chat_id = booking.chat_id
+        booking.status = "cancelled"
+        session.add(booking)
+        await session.commit()
+
+    if chat_id:
+        try:
+            await bot.send_message(chat_id, "❌ Ваша запись отменена администратором.")
+        except Exception:
+            pass
+
+    await callback.answer("Запись отменена ❌")
 
     try:
         await bot.edit_message_reply_markup(
@@ -1033,66 +1076,17 @@ async def admin_confirm(callback: CallbackQuery):
     except Exception:
         pass
 
-    @router.callback_query(lambda c: c.data and c.data.startswith("admin_cancel:"))
-    async def admin_cancel(callback: CallbackQuery):
-        if not is_admin(callback.from_user.id):
-            await callback.answer("Доступ запрещён.")
-            return
 
-        bid = int(callback.data.split(":", 1)[1])
 
-        async with AsyncSession(engine) as session:
-            result = await session.exec(select(Booking).where(Booking.id == bid))
-            booking = result.one_or_none()
-            if not booking:
-                await callback.answer("Запись не найдена.")
-                return
-
-            chat_id = booking.chat_id
-
-            booking.status = "cancelled"
-            session.add(booking)
-            await session.commit()
-
-        if chat_id:
-            try:
-                await bot.send_message(
-                    chat_id,
-                    "❌ Ваша запись была отменена администратором."
-                )
-            except Exception:
-                pass
-
-        await callback.answer("Запись отменена.")
-
-        try:
-            await bot.edit_message_reply_markup(
-                callback.from_user.id,
-                callback.message.message_id,
-                reply_markup=None
-            )
-        except Exception:
-            pass
-
-    async with AsyncSession(engine) as session:
-        booking = await session.get(Booking, bid)
-        if not booking:
-            await callback.answer("Не найдено.")
-            return
-        booking.status = "cancelled"
-        session.add(booking)
-        await session.commit()
-
-    await bot.send_message(chat_id, "Ваша запись отменена ❌")
-    await callback.answer("Отменено")
-
+# ================= BACK BUTTON =================
 
 @router.message(F.text == "◀️ Назад")
 async def go_back(message: Message):
     await cmd_start(message)
 
 
-# ===== FastAPI =====
+# ================= FASTAPI =================
+
 app = FastAPI()
 app.mount("/uploads", StaticFiles(directory=UPLOAD_PATH), name="uploads")
 
@@ -1103,7 +1097,8 @@ async def startup_event():
     asyncio.create_task(reminder_loop())
 
 
-# ===== Reminders (24h + 2h) =====
+# ================= REMINDERS =================
+
 async def reminder_loop():
     sent = set()  # (booking_id, hours)
 
@@ -1158,10 +1153,11 @@ async def reminder_loop():
         except Exception as e:
             logger.exception("Reminder loop error: %s", e)
 
-        await asyncio.sleep(600)  # каждые 10 минут
+        await asyncio.sleep(600)
 
 
-# ===== Run =====
+# ================= RUN =================
+
 async def main():
     await init_db()
     await dp.start_polling(bot)
