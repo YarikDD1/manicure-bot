@@ -369,18 +369,19 @@ async def about_salon(msg: Message):
     async with AsyncSession(engine) as s:
         info = await s.get(SalonInfo, 1)
 
-        # если записи нет — создаём
         if not info:
             info = SalonInfo(id=1)
             s.add(info)
             await s.commit()
-
-        salon_text = info.text  # ⚠️ забираем ПРИМИТИВ
+            salon_text = info.text
+        else:
+            salon_text = info.text  # ✅ читаем ВНУТРИ сессии
 
     await msg.answer(
         salon_text,
         reply_markup=reply_kb([["⬅️ Назад"]])
     )
+
 
 
 
