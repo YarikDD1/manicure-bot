@@ -1,6 +1,5 @@
 aiogram==3.*
 sqlmodel
+sqlalchemy
 aiosqlite
-fastapi
-uvicorn
-aiohttp
+python-dotenv
