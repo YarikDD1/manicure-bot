@@ -316,6 +316,15 @@ async def about_salon(msg: Message):
     async with AsyncSession(engine) as s:
         info = await s.get(SalonInfo, 1)
 
+        # если записи нет — создаём
+        if not info:
+            info = SalonInfo(
+                id=1,
+                text="💅 Наш салон маникюра\n\nЗаписывайтесь онлайн!"
+            )
+            s.add(info)
+            await s.commit()
+
     await msg.answer(
         info.text,
         reply_markup=reply_kb([["⬅️ Назад"]])
