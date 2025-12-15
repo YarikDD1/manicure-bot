@@ -189,19 +189,6 @@ async def is_day_enabled(master_id: int, date_str: str) -> bool:
         return res.first() is not None
 
 
-# ================= FSM =================
-class BookingFSM(StatesGroup):
-    name = State()
-    phone = State()
-    master = State()
-    date = State()
-    time = State()
-
-
-class ReviewFSM(StatesGroup):
-    text = State()
-
-
 # ================= START =================
 @router.message(Command("start"))
 async def start(msg: Message):
@@ -248,95 +235,72 @@ async def admin_panel(msg: Message):
     )
 
 
-# === FSM (ТОЛЬКО состояния!) ===
+# ================= FSM =================
+class BookingFSM(StatesGroup):
+    name = State()
+    phone = State()
+    master = State()
+    date = State()
+    time = State()
+
+
+class ReviewFSM(StatesGroup):
+    text = State()
+
+
 class AdminFSM(StatesGroup):
     add_master = State()
 
-    class AdminFSM(StatesGroup):
-        add_master = State()
 
-    class SalonEditFSM(StatesGroup):
-        text = State()
-
-    class MasterEditFSM(StatesGroup):
-        name = State()
-        phone = State()
-
-    # ================= EDIT SALON INFO =================
-    @router.message(F.text == "✏️ О салоне")
-    async def admin_edit_salon(msg: Message, state: FSMContext):
-        if not await is_admin(msg.from_user.id):
-            await msg.answer("⛔ У вас нет доступа")
-            return
-
-        async with AsyncSession(engine) as s:
-            res = await s.exec(
-                select(SalonInfo).where(SalonInfo.id == 1)
-            )
-            info = res.first()
-
-            salon_text = info.text if info else "Информация ещё не задана"
-
-        await msg.answer(
-            "✏️ *Текущая информация о салоне:*\n\n"
-            f"{salon_text}\n\n"
-            "📝 Введите новый текст:",
-            parse_mode="Markdown"
-        )
+class SalonEditFSM(StatesGroup):
+    text = State()
 
 
-    @router.message(StateFilter(SalonEditFSM.text))
-    async def admin_save_salon(msg: Message, state: FSMContext):
-        async with AsyncSession(engine) as s:
-            res = await s.exec(
-                select(SalonInfo).where(SalonInfo.id == 1)
-            )
-            info = res.first()
+class MasterEditFSM(StatesGroup):
+    name = State()
+    phone = State()
 
-            if info:
-                info.text = msg.text
-            else:
-                s.add(
-                    SalonInfo(
-                        id=1,
-                        text=msg.text
-                    )
-                )
 
-            await s.commit()
+# ================= EDIT SALON INFO =================
+@router.message(F.text == "✏️ О салоне")
+async def admin_edit_salon(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await msg.answer("⛔ У вас нет доступа")
+        return
 
-        await msg.answer(
-            "✅ Информация о салоне обновлена",
-            reply_markup=reply_kb([["⬅️ Назад"]])
-        )
+    async with AsyncSession(engine) as s:
+        res = await s.exec(select(SalonInfo).where(SalonInfo.id == 1))
+        info = res.first()
+        salon_text = info.text if info else "Информация ещё не задана"
 
-        await state.clear()
+    await msg.answer(
+        "✏️ *Текущая информация о салоне:*\n\n"
+        f"{salon_text}\n\n"
+        "📝 Введите новый текст:",
+        parse_mode="Markdown"
+    )
 
-    @router.message(StateFilter(SalonEditFSM.text))
-    async def admin_save_salon(msg: Message, state: FSMContext):
-        async with AsyncSession(engine) as s:
-            res = await s.exec(
-                select(SalonInfo).where(SalonInfo.id == 1)
-            )
-            info = res.first()
+    await state.set_state(SalonEditFSM.text)
 
-            if info:
-                info.text = msg.text
-            else:
-                s.add(
-                    SalonInfo(
-                        id=1,
-                        text=msg.text
-                    )
-                )
 
-            await s.commit()
+@router.message(StateFilter(SalonEditFSM.text))
+async def admin_save_salon(msg: Message, state: FSMContext):
+    async with AsyncSession(engine) as s:
+        res = await s.exec(select(SalonInfo).where(SalonInfo.id == 1))
+        info = res.first()
 
-        await msg.answer(
-            "✅ Информация о салоне обновлена",
-            reply_markup=reply_kb([["⬅️ Назад"]])
-        )
-        await state.clear()
+        if info:
+            info.text = msg.text
+        else:
+            s.add(SalonInfo(id=1, text=msg.text))
+
+        await s.commit()
+
+    await msg.answer(
+        "✅ Информация о салоне обновлена",
+        reply_markup=reply_kb([["⬅️ Назад"]])
+    )
+    await state.clear()
 
 
 # === кнопка "Добавить мастера" ===
