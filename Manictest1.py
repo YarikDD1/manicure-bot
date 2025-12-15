@@ -247,9 +247,96 @@ async def admin_panel(msg: Message):
         ])
     )
 
+
 # === FSM (ТОЛЬКО состояния!) ===
 class AdminFSM(StatesGroup):
     add_master = State()
+
+    class AdminFSM(StatesGroup):
+        add_master = State()
+
+    class SalonEditFSM(StatesGroup):
+        text = State()
+
+    class MasterEditFSM(StatesGroup):
+        name = State()
+        phone = State()
+
+    # ================= EDIT SALON INFO =================
+    @router.message(F.text == "✏️ О салоне")
+    async def admin_edit_salon(msg: Message, state: FSMContext):
+        if not await is_admin(msg.from_user.id):
+            await msg.answer("⛔ У вас нет доступа")
+            return
+
+        async with AsyncSession(engine) as s:
+            res = await s.exec(
+                select(SalonInfo).where(SalonInfo.id == 1)
+            )
+            info = res.first()
+
+            salon_text = info.text if info else "Информация ещё не задана"
+
+        await msg.answer(
+            "✏️ *Текущая информация о салоне:*\n\n"
+            f"{salon_text}\n\n"
+            "📝 Введите новый текст:",
+            parse_mode="Markdown"
+        )
+
+
+    @router.message(StateFilter(SalonEditFSM.text))
+    async def admin_save_salon(msg: Message, state: FSMContext):
+        async with AsyncSession(engine) as s:
+            res = await s.exec(
+                select(SalonInfo).where(SalonInfo.id == 1)
+            )
+            info = res.first()
+
+            if info:
+                info.text = msg.text
+            else:
+                s.add(
+                    SalonInfo(
+                        id=1,
+                        text=msg.text
+                    )
+                )
+
+            await s.commit()
+
+        await msg.answer(
+            "✅ Информация о салоне обновлена",
+            reply_markup=reply_kb([["⬅️ Назад"]])
+        )
+
+        await state.clear()
+
+    @router.message(StateFilter(SalonEditFSM.text))
+    async def admin_save_salon(msg: Message, state: FSMContext):
+        async with AsyncSession(engine) as s:
+            res = await s.exec(
+                select(SalonInfo).where(SalonInfo.id == 1)
+            )
+            info = res.first()
+
+            if info:
+                info.text = msg.text
+            else:
+                s.add(
+                    SalonInfo(
+                        id=1,
+                        text=msg.text
+                    )
+                )
+
+            await s.commit()
+
+        await msg.answer(
+            "✅ Информация о салоне обновлена",
+            reply_markup=reply_kb([["⬅️ Назад"]])
+        )
+        await state.clear()
 
 
 # === кнопка "Добавить мастера" ===
@@ -316,22 +403,20 @@ async def about_salon(msg: Message):
     async with AsyncSession(engine) as s:
         info = await s.get(SalonInfo, 1)
 
+        # если записи нет — создаём
         if not info:
-            info = SalonInfo(
-                id=1,
-                text="💅 Наш салон маникюра\n\nЗаписывайтесь онлайн!"
-            )
+            info = SalonInfo(id=1)
             s.add(info)
             await s.commit()
 
-        # ✅ сохраняем ПРИМИТИВ
-        salon_text = info.text
+        salon_text = info.text  # ⚠️ забираем ПРИМИТИВ
 
-    # ⬇️ вне сессии
     await msg.answer(
         salon_text,
         reply_markup=reply_kb([["⬅️ Назад"]])
     )
+
+
 
 
 
@@ -644,24 +729,29 @@ async def master_bookings(msg: Message):
         res = await s.exec(
             select(Booking).where(
                 Booking.master_id == msg.from_user.id,
-                Booking.status == "pending"
-            )
+                Booking.status.in_(["pending", "confirmed"])
+            ).order_by(Booking.date, Booking.time)
         )
         bookings = res.all()
 
     if not bookings:
-        await msg.answer("Нет новых записей", reply_markup=reply_kb([["⬅️ Назад"]]))
+        await msg.answer(
+            "📭 У вас пока нет записей",
+            reply_markup=reply_kb([["⬅️ Назад"]])
+        )
         return
 
     for b in bookings:
+        status_icon = "🕓" if b.status == "pending" else "✅"
+
         await msg.answer(
-            f"📅 {format_datetime_ru(b.date, b.time)}\n"
-            f"👤 {b.client_name}\n"
-            f"📞 {b.phone}",
+            f"{status_icon} {format_datetime_ru(b.date, b.time)}\n"
+            f"👤 Клиент: {b.client_name}\n"
+            f"📞 Телефон: {b.phone}",
             reply_markup=inline_kb([
                 ("✅ Подтвердить", f"mc:{b.id}"),
                 ("❌ Отменить", f"mx:{b.id}")
-            ])
+            ]) if b.status == "pending" else None
         )
 
 
