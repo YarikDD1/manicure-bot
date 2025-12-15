@@ -373,14 +373,14 @@ async def about_salon(msg: Message):
             info = SalonInfo(id=1)
             s.add(info)
             await s.commit()
-            salon_text = info.text
-        else:
-            salon_text = info.text  # ✅ читаем ВНУТРИ сессии
+
+        salon_text = info.text  # ✅ ВНУТРИ сессии
 
     await msg.answer(
         salon_text,
         reply_markup=reply_kb([["⬅️ Назад"]])
     )
+
 
 
 
