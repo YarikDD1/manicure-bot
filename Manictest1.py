@@ -4,6 +4,8 @@ import asyncio
 import logging
 import re
 import locale
+from zoneinfo import ZoneInfo
+IRKUTSK_TZ = ZoneInfo("Asia/Irkutsk")
 from datetime import datetime, timedelta, UTC
 from typing import Optional, List
 
@@ -167,7 +169,7 @@ def inline_kb(pairs):
 
 
 def gen_dates(days=14):
-    today = datetime.now(UTC).date()
+    today = datetime.now(IRKUTSK_TZ).date()
     return [(today + timedelta(days=i)).isoformat() for i in range(days)]
 
 
@@ -504,11 +506,14 @@ async def booking_master(cb: CallbackQuery, state: FSMContext):
     await state.set_state(BookingFSM.date)
 
 
-# ================= SELECT DATE =================
+
+
 @router.callback_query(F.data.startswith("bd:"))
 async def booking_date(cb: CallbackQuery, state: FSMContext):
     date = cb.data.split(":")[1]
     data = await state.get_data()
+
+    now = datetime.now(IRKUTSK_TZ)
 
     async with AsyncSession(engine) as s:
         res = await s.exec(
@@ -520,8 +525,19 @@ async def booking_date(cb: CallbackQuery, state: FSMContext):
         )
         slots = res.all()
 
-    if not slots:
-        await cb.answer("Нет свободного времени", show_alert=True)
+    valid_slots = []
+
+    for slot in slots:
+        dt = datetime.strptime(
+            f"{date} {slot.time}", "%Y-%m-%d %H:%M"
+        ).replace(tzinfo=IRKUTSK_TZ)
+
+        # ❌ запрещаем прошлое и текущее время
+        if dt > now:
+            valid_slots.append(slot)
+
+    if not valid_slots:
+        await cb.answer("Нет доступного времени", show_alert=True)
         return
 
     await state.update_data(date=date)
@@ -529,10 +545,12 @@ async def booking_date(cb: CallbackQuery, state: FSMContext):
     await cb.message.answer(
         f"⏰ {format_date_ru(date)}\nВыберите время:",
         reply_markup=inline_kb([
-            (t.time, f"bt:{t.time}") for t in slots
+            (s.time, f"bt:{s.time}") for s in valid_slots
         ])
     )
+
     await state.set_state(BookingFSM.time)
+
 
 
 # ================= FINISH BOOKING =================
@@ -883,7 +901,7 @@ async def toggle_weekday(cb: CallbackQuery):
 # ================= REMINDERS =================
 async def reminder_loop():
     while True:
-        now = datetime.now(UTC)
+        now = datetime.now(IRKUTSK_TZ)
 
         async with AsyncSession(engine) as s:
             res = await s.exec(
