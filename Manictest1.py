@@ -669,47 +669,73 @@ async def booking_time(cb: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
-@router.callback_query(F.data.startswith("cx:"))
-async def client_cancel(cb: CallbackQuery):
-    booking_id = int(cb.data.split(":")[1])
-    user_id = cb.from_user.id
+@router.callback_query(F.data.startswith("bt:"))
+async def booking_time(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+
+    # защита от устаревшего FSM
+    if "master" not in data or "date" not in data:
+        await cb.answer(
+            "Сессия записи устарела. Начните запись заново.",
+            show_alert=True
+        )
+        return
+
+    time = cb.data.split(":", 1)[1]
+    master_id = data["master"]
+    date = data["date"]
 
     async with AsyncSession(engine) as s:
+        # проверяем, что слот ещё существует
         res = await s.exec(
-            select(Booking).where(
-                Booking.id == booking_id,
-                Booking.chat_id == user_id
+            select(MasterSchedule).where(
+                MasterSchedule.master_id == master_id,
+                MasterSchedule.date == date,
+                MasterSchedule.time == time
             )
         )
-        b = res.first()
+        slot = res.first()
 
-        if not b:
-            await cb.answer("Запись не найдена", show_alert=True)
+        if not slot:
+            await cb.answer("⛔ Это время уже занято", show_alert=True)
             return
 
-        if b.status == "cancelled":
-            await cb.answer("Запись уже отменена")
-            return
+        # удаляем слот
+        await s.delete(slot)
 
-        master_id = b.master_id
-        date = b.date
-        time = b.time
-
-        b.status = "cancelled"
-
-        s.add(
-            MasterSchedule(
-                master_id=master_id,
-                date=date,
-                time=time,
-                is_available=True
-            )
+        # создаём запись (по умолчанию pending)
+        booking = Booking(
+            chat_id=cb.from_user.id,
+            client_name=data["name"],
+            phone=data["phone"],
+            date=date,
+            time=time,
+            master_id=master_id,
+            status="pending"
         )
+        s.add(booking)
 
         await s.commit()
 
-    await cb.message.delete()
-    await cb.answer("Запись отменена")
+    # ===== УВЕДОМЛЕНИЕ МАСТЕРУ =====
+    await bot.send_message(
+        master_id,
+        "📅 Новая запись\n\n"
+        f"🗓 {format_datetime_ru(date, time)}\n"
+        f"👤 {data['name']}\n"
+        f"📞 {data['phone']}"
+    )
+
+    # ===== ФИДБЕК КЛИЕНТУ =====
+    await bot.send_message(
+        cb.from_user.id,
+        "⏳ Заявка отправлена мастеру\n\n"
+        f"🗓 {format_datetime_ru(date, time)}\n"
+        "Мастер подтвердит запись в ближайшее время."
+    )
+
+    await cb.answer()
+    await state.clear()
 
     await bot.send_message(
         master_id,
