@@ -118,13 +118,26 @@ def reply_kb(rows):
         resize_keyboard=True
     )
 
+MONTHS_RU = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+}
+
+WEEKDAYS_RU = {
+    0: "Пн", 1: "Вт", 2: "Ср",
+    3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"
+}
+
+
 def format_date_ru(date_str: str) -> str:
     d = datetime.fromisoformat(date_str)
-    return d.strftime("%d %B (%a)")
+    return f"{d.day} {MONTHS_RU[d.month]} ({WEEKDAYS_RU[d.weekday()]})"
+
 
 def format_datetime_ru(date_str: str, time_str: str) -> str:
     d = datetime.fromisoformat(date_str)
-    return f"{d.strftime('%d %B')} {time_str}"
+    return f"{d.day} {MONTHS_RU[d.month]} {time_str}"
 
 
 
@@ -628,65 +641,11 @@ async def booking_time(cb: CallbackQuery, state: FSMContext):
         )
         return
 
-    _, time = cb.data.split(":", 1)
-
-    async with AsyncSession(engine) as s:
-        res = await s.exec(
-            select(MasterSchedule).where(
-                MasterSchedule.master_id == data["master"],
-                MasterSchedule.date == data["date"],
-                MasterSchedule.time == time
-            )
-        )
-
-        slot = res.first()
-
-        if not slot:
-            await cb.answer("⛔ Время недоступно", show_alert=True)
-            return
-
-        await s.delete(slot)
-
-        s.add(
-            Booking(
-                chat_id=cb.from_user.id,
-                client_name=data["name"],
-                phone=data["phone"],
-                date=data["date"],
-                time=time,
-                master_id=data["master"]
-            )
-        )
-        await s.commit()
-
-    # 🔔 уведомляем мастера
-    await bot.send_message(
-        data["master"],
-        f"📅 Новая запись\n\n"
-        f"🗓 {format_datetime_ru(data['date'], time)}\n"
-        f"👤 {data['name']}\n"
-        f"📞 {data['phone']}"
-    )
-    await state.clear()
-
-@router.callback_query(F.data.startswith("bt:"))
-async def booking_time(cb: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-
-    # защита от устаревшего FSM
-    if "master" not in data or "date" not in data:
-        await cb.answer(
-            "Сессия записи устарела. Начните запись заново.",
-            show_alert=True
-        )
-        return
-
     time = cb.data.split(":", 1)[1]
     master_id = data["master"]
     date = data["date"]
 
     async with AsyncSession(engine) as s:
-        # проверяем, что слот ещё существует
         res = await s.exec(
             select(MasterSchedule).where(
                 MasterSchedule.master_id == master_id,
@@ -700,10 +659,8 @@ async def booking_time(cb: CallbackQuery, state: FSMContext):
             await cb.answer("⛔ Это время уже занято", show_alert=True)
             return
 
-        # удаляем слот
         await s.delete(slot)
 
-        # создаём запись (по умолчанию pending)
         booking = Booking(
             chat_id=cb.from_user.id,
             client_name=data["name"],
@@ -714,19 +671,19 @@ async def booking_time(cb: CallbackQuery, state: FSMContext):
             status="pending"
         )
         s.add(booking)
-
         await s.commit()
 
-    # ===== УВЕДОМЛЕНИЕ МАСТЕРУ =====
+    # 🔔 мастеру
     await bot.send_message(
         master_id,
         "📅 Новая запись\n\n"
         f"🗓 {format_datetime_ru(date, time)}\n"
         f"👤 {data['name']}\n"
-        f"📞 {data['phone']}"
+        f"📞 {data['phone']}\n\n"
+        "⏳ Ожидает подтверждения"
     )
 
-    # ===== ФИДБЕК КЛИЕНТУ =====
+    # ✅ клиенту
     await bot.send_message(
         cb.from_user.id,
         "⏳ Заявка отправлена мастеру\n\n"
@@ -737,10 +694,8 @@ async def booking_time(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await state.clear()
 
-    await bot.send_message(
-        master_id,
-        f"❌ Клиент отменил запись\n\n🗓 {format_datetime_ru(date, time)}"
-    )
+
+
 
 
 # ================= MASTER PANEL =================
